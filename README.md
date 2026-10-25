@@ -222,7 +222,8 @@ pnpm dev
 ```
 
 Development builds use their own `app.zephium.dev` profile, so they do not
-touch the data of an installed Zephium. Linux is not supported yet. See
+touch the data of an installed Zephium. Linux builds from source (without
+Work) but is experimental and needs WebKitGTK 2.54 or newer. See
 [CONTRIBUTING.md](CONTRIBUTING.md) before opening a pull request.
 
 ## Architecture

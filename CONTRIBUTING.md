@@ -30,7 +30,7 @@ If a change trades any of these away for convenience, it probably won't land. Wh
 
 ### Prerequisites
 
-Supported development platforms are macOS (Apple Silicon) and Windows 10/11. Linux development is not supported yet; the app refuses to start there.
+Supported development platforms are macOS (Apple Silicon) and Windows 10/11. Linux is experimental: `pnpm dev` builds without Work, and the app refuses to start on a WebKitGTK older than 2.54.
 
 - **Rust**: install [rustup](https://rustup.rs). The pinned toolchain in `rust-toolchain.toml` (with `rustfmt` and `clippy`) is installed automatically on first use.
 - **Node.js**: the version in `.node-version` (`engines` in `package.json` allows `>=24.18.0 <25`).

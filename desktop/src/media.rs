@@ -956,12 +956,16 @@ pub(crate) async fn media_admit_remote(
         Ok(MediaAdmitV1::Refused { error }) => Some(*error),
         _ => None,
     };
-    super::work_provider::record_diagnostic(format_args!(
+    let line = format_args!(
         "work: phase=media_admit outcome={outcome} error={error:?} fetch={:?} bytes={} elapsed_ms={}",
         trace.fetch,
         trace.bytes,
         started.elapsed().as_millis()
-    ));
+    );
+    #[cfg(feature = "work-product")]
+    super::work_provider::record_diagnostic(line);
+    #[cfg(not(feature = "work-product"))]
+    super::write_diagnostic(line);
     result
 }
 
