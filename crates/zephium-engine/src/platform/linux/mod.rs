@@ -1479,7 +1479,8 @@ mod tests {
         assert_eq!(
             enforce_runtime_version(
                 (2, 54, 1),
-                zephium_core::webkitgtk::SECURITY_FLOOR_REVIEW_DEADLINE_EXCLUSIVE_UNIX_SECONDS,
+                zephium_core::webkitgtk::SECURITY_FLOOR_REVIEW_DEADLINE_EXCLUSIVE_UNIX_SECONDS
+                    + zephium_core::runtime_security::RUNTIME_REVIEW_GRACE_SECONDS,
             ),
             Ok(
                 zephium_core::runtime_security::RuntimeSecurityAdvisories::from_advisory(

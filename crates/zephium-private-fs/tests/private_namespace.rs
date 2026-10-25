@@ -50,6 +50,23 @@ fn namespace_root(parent: &Path) -> PathBuf {
     parent.join("private-boundary")
 }
 
+/// Opens a root whose previous owner has just been dropped. `flock` belongs to
+/// the open file description, so a concurrent test forking `mkfifo` can keep a
+/// released lock alive until its child execs. Only that transient is retried;
+/// a lock that stays held still fails after the deadline.
+#[cfg(any(target_os = "macos", target_os = "linux"))]
+fn reopen(root: impl AsRef<Path>) -> Result<LockedPrivateNamespace, PrivateFsError> {
+    let deadline = std::time::Instant::now() + std::time::Duration::from_secs(5);
+    loop {
+        match LockedPrivateNamespace::open_or_create(root.as_ref()) {
+            Err(PrivateFsError::LockUnavailable) if std::time::Instant::now() < deadline => {
+                std::thread::sleep(std::time::Duration::from_millis(5));
+            }
+            outcome => return outcome,
+        }
+    }
+}
+
 #[cfg(any(target_os = "macos", target_os = "linux"))]
 fn open(root: &Path) -> LockedPrivateNamespace {
     LockedPrivateNamespace::open_or_create(root).unwrap()
@@ -165,7 +182,7 @@ fn exact_lock_rejects_a_second_owner_until_drop() {
         PrivateFsError::LockUnavailable
     );
     drop(first);
-    assert!(LockedPrivateNamespace::open_or_create(&root).is_ok());
+    assert!(reopen(&root).is_ok());
     assert_eq!(fs::read(root.join(LOCK_NAME)).unwrap(), LOCK_MARKER);
 }
 
@@ -210,7 +227,7 @@ fn concurrent_initialization_has_one_authoritative_owner() {
         )
     }));
     assert_eq!(fs::read(root.join(LOCK_NAME)).unwrap(), LOCK_MARKER);
-    let recovered = LockedPrivateNamespace::open_or_create(&root).unwrap();
+    let recovered = reopen(&root).unwrap();
     assert!(!root.join(LOCK_STAGING_NAME).exists());
     drop(recovered);
 }
@@ -256,7 +273,7 @@ fn exact_staging_crash_residue_is_published_without_rewriting() {
     assert_eq!(fs::read(root.join(LOCK_NAME)).unwrap(), LOCK_MARKER);
     assert!(!staging.exists());
     drop(namespace);
-    assert!(LockedPrivateNamespace::open_or_create(root).is_ok());
+    assert!(reopen(root).is_ok());
 }
 
 #[cfg(any(target_os = "macos", target_os = "linux"))]
@@ -272,7 +289,7 @@ fn staging_crash_residue_recovers_empty_and_every_strict_marker_prefix() {
         let staging = root.join(LOCK_STAGING_NAME);
         write_private_file(&staging, &payload);
 
-        let namespace = LockedPrivateNamespace::open_or_create(&root).unwrap();
+        let namespace = reopen(&root).unwrap();
         assert_eq!(fs::read(root.join(LOCK_NAME)).unwrap(), LOCK_MARKER);
         assert!(!staging.exists());
         drop(namespace);
@@ -319,7 +336,7 @@ fn canonical_admission_durably_cleans_exact_and_prefix_staging_residue() {
         let staging = root.join(LOCK_STAGING_NAME);
         write_private_file(&staging, &payload);
 
-        let namespace = LockedPrivateNamespace::open_or_create(&root).unwrap();
+        let namespace = reopen(&root).unwrap();
         assert!(!staging.exists());
         assert_eq!(fs::read(root.join(LOCK_NAME)).unwrap(), LOCK_MARKER);
         assert!(namespace.directory().list_components(1).unwrap().is_empty());
@@ -380,7 +397,7 @@ fn canonical_admission_refuses_busy_staging_then_recovers_after_release() {
     assert_eq!(fs::read(&staging).unwrap(), LOCK_MARKER);
     drop(staging_owner);
 
-    let namespace = LockedPrivateNamespace::open_or_create(&root).unwrap();
+    let namespace = reopen(&root).unwrap();
     assert!(!staging.exists());
     drop(namespace);
 }
@@ -1681,7 +1698,7 @@ fn child_keeps_the_root_lock_lease_alive_after_namespace_drop() {
         PrivateFsError::LockUnavailable
     );
     drop(child);
-    if let Err(error) = LockedPrivateNamespace::open_or_create(&root) {
+    if let Err(error) = reopen(&root) {
         panic!("root lock was not released with the last control child: {error:?}");
     }
 }
@@ -1711,7 +1728,7 @@ fn entry_child_keeps_the_root_lock_lease_alive_after_namespace_drop() {
         PrivateFsError::LockUnavailable
     );
     drop(child);
-    if let Err(error) = LockedPrivateNamespace::open_or_create(&root) {
+    if let Err(error) = reopen(&root) {
         panic!("root lock was not released with the last entry child: {error:?}");
     }
 }

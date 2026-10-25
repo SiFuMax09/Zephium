@@ -646,11 +646,18 @@ fn shortcut_modifiers(shortcut: &Shortcut) -> gtk::gdk::ModifierType {
 }
 
 fn observed_shortcut_modifiers(state: gtk::gdk::ModifierType) -> gtk::gdk::ModifierType {
+    observed_modifiers_under(state, gtk::accelerator_get_default_mod_mask())
+}
+
+fn observed_modifiers_under(
+    state: gtk::gdk::ModifierType,
+    default_mask: gtk::gdk::ModifierType,
+) -> gtk::gdk::ModifierType {
     // GTK's default accelerator mask deliberately excludes lock modifiers.
     // Keep the virtual modifiers explicit as a defense against a process-wide
     // mask override: the shared Linux parser rejects Meta/Super/Hyper, so the
     // focused fallback must never accept them as an invisible extra chord.
-    let relevant = gtk::accelerator_get_default_mod_mask()
+    let relevant = default_mask
         | gtk::gdk::ModifierType::SUPER_MASK
         | gtk::gdk::ModifierType::HYPER_MASK
         | gtk::gdk::ModifierType::META_MASK;
@@ -673,19 +680,23 @@ mod shortcut_tests {
 
     #[test]
     fn focused_shortcut_requires_exact_non_lock_modifiers() {
+        use gtk::gdk::ModifierType as Mod;
+        // GTK's documented default accelerator mask; reading it from GTK would
+        // need an initialized display, which a unit test must not require.
+        let default_mask = Mod::SHIFT_MASK
+            | Mod::CONTROL_MASK
+            | Mod::MOD1_MASK
+            | Mod::SUPER_MASK
+            | Mod::HYPER_MASK
+            | Mod::META_MASK;
+        let observed = |state| observed_modifiers_under(state, default_mask);
         let expected = shortcut_modifiers(&launcher_shortcut());
         assert_eq!(
-            observed_shortcut_modifiers(
-                expected | gtk::gdk::ModifierType::LOCK_MASK | gtk::gdk::ModifierType::MOD2_MASK,
-            ),
+            observed(expected | Mod::LOCK_MASK | Mod::MOD2_MASK),
             expected
         );
-        for unexpected in [
-            gtk::gdk::ModifierType::SUPER_MASK,
-            gtk::gdk::ModifierType::HYPER_MASK,
-            gtk::gdk::ModifierType::META_MASK,
-        ] {
-            assert_ne!(observed_shortcut_modifiers(expected | unexpected), expected);
+        for unexpected in [Mod::SUPER_MASK, Mod::HYPER_MASK, Mod::META_MASK] {
+            assert_ne!(observed(expected | unexpected), expected);
         }
     }
 
