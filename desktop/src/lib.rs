@@ -5673,6 +5673,7 @@ fn handle_run_event(app: &tauri::AppHandle, event: tauri::RunEvent) {
     #[cfg(target_os = "linux")]
     if matches!(&event, tauri::RunEvent::Exit) {
         linux_global_shortcuts::shutdown(app);
+        updates::finish_on_exit(app);
     }
     #[cfg(target_os = "macos")]
     if matches!(&event, tauri::RunEvent::Exit) {

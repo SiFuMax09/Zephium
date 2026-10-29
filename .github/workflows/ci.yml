@@ -123,8 +123,8 @@ jobs:
       - run: pnpm --dir frame run build
       - run: pnpm --dir frame run check:styles
 
-  # Zephium ships on macOS and Windows only, so Linux builds no app code; it
-  # runs the platform-neutral policy gates.
+  # The policy gates are platform-neutral; the Linux app builds and tests in
+  # the `linux` job below.
   policy:
     name: Rust policy
     needs: changes
@@ -206,6 +206,42 @@ jobs:
             -framework WebKit scripts/ci/probe_macos_blocker_seed.swift -o "${probe}"
           "${probe}" --self-test
           "${probe}" "${artifact}"
+
+  # Linux is experimental: it builds without Work, which has no Linux
+  # adapters yet, and the native GTK tests run under Xvfb.
+  linux:
+    name: Rust (Linux)
+    needs: changes
+    # Runs when the scope check itself failed, so a broken check never skips a job.
+    if: ${{ !cancelled() && (needs.changes.result != 'success' || needs.changes.outputs.rust == 'true') }}
+    runs-on: ubuntu-24.04
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Install the Tauri and WebKitGTK build dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            libwebkit2gtk-4.1-dev libgtk-3-dev libsoup-3.0-dev \
+            libjavascriptcoregtk-4.1-dev librsvg2-dev libssl-dev \
+            libasound2-dev xvfb dbus-x11
+      - run: rustup toolchain install --profile minimal
+      - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
+      - uses: taiki-e/install-action@e407f7bafb71fd004bc5c2da3032e5470cbb6ef0 # v2.87.24
+        with:
+          tool: cargo-nextest@0.9.137
+          fallback: none
+      - name: Vendored updater tests
+        run: cargo test -p tauri-plugin-updater --lib --locked
+      - name: Tests
+        run: >-
+          xvfb-run -a cargo nextest run --workspace --no-default-features
+          --locked --profile ci --retries 2 --no-fail-fast
+      - name: Report flaky tests
+        if: ${{ !cancelled() }}
+        run: python3 scripts/ci/flaky-summary.py target/nextest/ci/junit.xml
 
   windows:
     name: Rust (Windows)

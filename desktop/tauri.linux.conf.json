@@ -19,10 +19,18 @@
   "bundle": {
     "linux": {
       "deb": {
-        "desktopTemplate": "linux/zephium.desktop.hbs"
+        "desktopTemplate": "linux/zephium.desktop.hbs",
+        "depends": [
+          "libwebkit2gtk-4.1-0 (>= 2.54.0)",
+          "libgtk-3-0"
+        ]
       },
       "rpm": {
-        "desktopTemplate": "linux/zephium.desktop.hbs"
+        "desktopTemplate": "linux/zephium.desktop.hbs",
+        "depends": [
+          "webkit2gtk4.1 >= 2.54.0",
+          "gtk3"
+        ]
       }
     }
   }

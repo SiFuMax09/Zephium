@@ -49,12 +49,18 @@ pub(crate) struct Updates {
     recovery_path: Mutex<Option<std::path::PathBuf>>,
 }
 
-#[cfg(target_os = "macos")]
+#[cfg(any(target_os = "macos", target_os = "linux"))]
 static RELAUNCH_AFTER_EXIT: AtomicBool = AtomicBool::new(false);
 #[cfg(target_os = "windows")]
 static INSTALL_AFTER_EXIT: Mutex<Option<(Parked, std::path::PathBuf)>> = Mutex::new(None);
 
-const SUPPORTED: bool = !cfg!(debug_assertions) && cfg!(any(target_os = "macos", windows));
+/// Linux updates only an AppImage, which can replace itself without root. A
+/// deb or rpm is updated by the package manager and is never offered one.
+fn supported() -> bool {
+    !cfg!(debug_assertions)
+        && (cfg!(any(target_os = "macos", windows))
+            || (cfg!(target_os = "linux") && std::env::var_os("APPIMAGE").is_some()))
+}
 /// The release's highlights, kept from its download for the first launch of it.
 const HIGHLIGHTS: &str = "updates.highlights";
 const MAX_HIGHLIGHTS: usize = 5;
@@ -66,7 +72,7 @@ const NATIVE_CHECK_INTERVAL: Duration = Duration::from_secs(6 * 60 * 60);
 
 impl Updates {
     fn status(&self) -> UpdateStatus {
-        if !SUPPORTED {
+        if !supported() {
             return UpdateStatus::Unavailable;
         }
         lock(&self.status).clone().unwrap_or(UpdateStatus::Idle)
@@ -126,7 +132,7 @@ pub(crate) async fn update_check(
 
 async fn run_check(app: &tauri::AppHandle) -> UpdateStatus {
     let updates = app.state::<Updates>();
-    if let Err(status) = updates.begin_check(SUPPORTED) {
+    if let Err(status) = updates.begin_check(supported()) {
         return status;
     }
     let next = match check_and_download(app, &updates).await {
@@ -143,7 +149,7 @@ async fn run_check(app: &tauri::AppHandle) -> UpdateStatus {
 /// Checks on native's own schedule, unless the person turned automatic
 /// checks off, and tells the window what changed.
 pub(crate) fn schedule_native_checks(app: &tauri::AppHandle) {
-    if !SUPPORTED {
+    if !supported() {
         return;
     }
     let app = app.clone();
@@ -434,7 +440,7 @@ impl From<tauri_plugin_updater::Error> for InstallError {
 
 #[cfg(target_os = "windows")]
 pub(crate) fn restore(app: &tauri::AppHandle, directory: &std::path::Path) {
-    if !SUPPORTED {
+    if !supported() {
         return;
     }
     let path = directory.join("pending-update");
@@ -497,11 +503,41 @@ fn stage(mut parked: Parked, app: &tauri::AppHandle) -> Result<(), InstallError>
     Ok(())
 }
 
-#[cfg(not(any(target_os = "macos", target_os = "windows")))]
+/// Only an AppImage can replace itself without privileges: the updater swaps
+/// the file in place and the relaunch after shutdown starts the new one. A
+/// deb or rpm install needs root and belongs to the package manager, so those
+/// builds report a manual install instead of prompting for a password.
+#[cfg(target_os = "linux")]
+fn stage(mut parked: Parked, app: &tauri::AppHandle) -> Result<(), InstallError> {
+    if app.env().appimage.is_none() {
+        return Err(InstallError::Manual);
+    }
+    let bytes = parked.artifact.verified_bytes()?;
+    parked.update.install(bytes).map_err(InstallError::from)?;
+    RELAUNCH_AFTER_EXIT.store(true, Ordering::Release);
+    Ok(())
+}
+
+#[cfg(not(any(target_os = "macos", target_os = "windows", target_os = "linux")))]
 fn stage(_parked: Parked, _app: &tauri::AppHandle) -> Result<(), InstallError> {
     Err(InstallError::Failed(
         "updates are not supported on this platform".to_owned(),
     ))
+}
+
+/// Called once the event loop has finished and every profile is saved. Linux
+/// only relaunches after a staged AppImage swap; it never installs on quit.
+#[cfg(target_os = "linux")]
+pub(crate) fn finish_on_exit(app: &tauri::AppHandle) {
+    let clean = app
+        .try_state::<ShutdownCoordinator>()
+        .is_some_and(|shutdown| {
+            shutdown.authorized_exit_code.load(Ordering::Acquire) == 0
+                && !shutdown.terminal_failure.load(Ordering::Acquire)
+        });
+    if RELAUNCH_AFTER_EXIT.swap(false, Ordering::AcqRel) && clean {
+        tauri::process::restart(&app.env());
+    }
 }
 
 /// Called once the event loop has finished and every profile is saved.

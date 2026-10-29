@@ -1,0 +1,68 @@
+name: Linux preview
+
+# Builds the experimental Linux package for people to try. It is not part of
+# the release: nothing here is signed or listed in latest.json. It runs on
+# Fedora because Zephium refuses WebKitGTK older than 2.54, and Ubuntu 24.04
+# ships 2.52.
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: linux-preview-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  rpm:
+    name: Fedora (x64)
+    runs-on: ubuntu-24.04
+    container: fedora:latest
+    timeout-minutes: 90
+    steps:
+      - name: Install the build dependencies
+        run: |
+          dnf install -y --setopt=install_weak_deps=False \
+            gcc gcc-c++ make pkgconf-pkg-config git rpm-build file patchelf \
+            webkit2gtk4.1-devel gtk3-devel libsoup3-devel \
+            javascriptcoregtk4.1-devel librsvg2-devel openssl-devel \
+            alsa-lib-devel curl tar xz
+      - name: Require the WebKitGTK the app accepts
+        run: pkg-config --atleast-version=2.54.0 webkit2gtk-4.1 || { echo "::error::WebKitGTK $(pkg-config --modversion webkit2gtk-4.1) is older than 2.54.0"; exit 1; }
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: pnpm/action-setup@ea17c68df8912ef543352723c149a84f56e3d413 # v6.1.0
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version-file: .node-version
+          cache: pnpm
+      - run: |
+          curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y --profile minimal
+          echo "$HOME/.cargo/bin" >> "$GITHUB_PATH"
+      - run: rustup toolchain install --profile minimal
+      - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
+        with:
+          shared-key: linux-preview
+      - run: pnpm install --frozen-lockfile
+      - name: Build
+        working-directory: desktop
+        run: pnpm tauri build --bundles rpm -- --no-default-features
+      - name: Stage the package
+        run: |
+          rpm="$(ls target/release/bundle/rpm/*.rpm)"
+          test -s "${rpm}"
+          mkdir dist
+          cp "${rpm}" dist/Zephium-Linux-x64-preview.rpm
+          (cd dist && sha256sum Zephium-Linux-x64-preview.rpm > SHA256SUMS)
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: linux-preview-rpm
+          path: dist/
+          if-no-files-found: error
+          retention-days: 14

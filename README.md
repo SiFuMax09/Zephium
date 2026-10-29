@@ -222,8 +222,11 @@ pnpm dev
 ```
 
 Development builds use their own `app.zephium.dev` profile, so they do not
-touch the data of an installed Zephium. Linux builds from source (without
-Work) but is experimental and needs WebKitGTK 2.54 or newer. See
+touch the data of an installed Zephium. Linux builds from source but is
+experimental: it needs WebKitGTK 2.54 or newer, and Work and browser extensions
+are not available there yet. Dictation records through `parec` or `arecord`.
+Only an AppImage updates itself; deb and rpm installs update through the
+package manager. See
 [CONTRIBUTING.md](CONTRIBUTING.md) before opening a pull request.
 
 ## Architecture
